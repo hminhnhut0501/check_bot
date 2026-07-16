@@ -1,0 +1,20 @@
+.public-shell { max-width: 1100px; margin: auto; padding: 28px 20px 80px; }
+.public-shell nav { display:flex; justify-content:space-between; margin-bottom:70px; font-weight:700; }
+.public-shell a { color:var(--accent); }
+.hero { padding:70px 0; max-width:760px; }
+.hero h1 { font-size:clamp(42px,8vw,84px); line-height:.98; margin-bottom:24px; }
+.hero .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:30px; }
+.hero .actions a { background:var(--accent); color:#fff; text-decoration:none; padding:12px 18px; border-radius:8px; }
+.lookup-form { display:flex; gap:10px; margin-top:30px; }
+.lookup-form input { flex:1; min-width:0; }
+.results { margin-top:30px; max-width:760px; }
+.result-card { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:20px; margin:12px 0; background:#fff; border:1px solid var(--line); border-radius:12px; }
+.result-card h3 { margin-bottom:6px; }
+.public-risk { text-align:right; color:var(--accent); }
+.public-risk small { display:block; color:var(--muted); font:12px Arial,sans-serif; }
+.public-disclaimer { margin-top:40px; color:var(--muted); font:13px/1.5 Arial,sans-serif; }
+.form-card { max-width:620px; padding:34px; background:#fff; border:1px solid var(--line); border-radius:16px; }
+.form-card form { display:grid; gap:3px; margin-top:24px; }
+.form-card button { width:max-content; margin-top:10px; }
+.tracking-status { display:flex; justify-content:space-between; padding:18px; background:#edf6f0; border-radius:8px; margin:25px 0; }
+@media (max-width:600px) { .public-shell nav { margin-bottom:35px; } .lookup-form { flex-direction:column; } .result-card { align-items:flex-start; flex-direction:column; } .form-card { padding:24px; } }

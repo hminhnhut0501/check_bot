@@ -1,0 +1,10 @@
+.ui-button { border:0; border-radius:8px; padding:11px 16px; cursor:pointer; font:inherit; }
+.ui-primary { background:var(--accent); color:white; }
+.ui-secondary { background:#e8f0eb; color:var(--ink); }
+.ui-danger { background:var(--danger); color:white; }
+.ui-badge { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; font:11px Arial,sans-serif; }
+.ui-badge-neutral { background:#edf0ed; color:var(--ink); }
+.ui-badge-success { background:#d9f1e3; color:#15643b; }
+.ui-badge-danger { background:#f9dfdc; color:#94372f; }
+.ui-badge-warning { background:#fff0c9; color:#7b5a00; }
+.ui-card { background:white; border:1px solid var(--line); border-radius:14px; padding:20px; }

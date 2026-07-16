@@ -1,0 +1,20 @@
+services:
+  - type: worker
+    name: scamshield-telegram-worker
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm run bot
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SCAMSHIELD_API_URL
+        sync: false
+      - key: INTERNAL_API_SECRET
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: TELEGRAM_BROADCAST_CHAT_ID
+        sync: false
