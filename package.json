@@ -10,7 +10,8 @@
     "test": "vitest run",
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs",
-    "schema:check": "node scripts/check-schema.mjs"
+    "schema:check": "node scripts/check-schema.mjs",
+    "ops:check": "node scripts/ops-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

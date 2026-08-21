@@ -185,3 +185,35 @@ Chốt một đường migration chuẩn, biết rõ schema nào là source of t
 2. Chạy `0006_phase14_seed_group_bot`.
 3. Chạy `0007_phase15_schema_standardization`.
 4. Dùng `schema:check` hoặc SQL check trước khi deploy.
+
+---
+
+## Phase 23: Deploy, Backup, Restore, Rollback
+
+### Mục tiêu
+
+Khóa quy trình release thành một nhịp an toàn: có backup, có kiểm tra, có rollback, và có checklist sau deploy.
+
+### Phạm vi
+
+- Chuẩn hoá backup trước mọi thay đổi lớn.
+- Chuẩn hoá restore bằng file backup.
+- Có lệnh ops check trước release.
+- Có checklist release và post-release.
+- Dùng maintenance mode cho thay đổi DB/schema.
+
+### Deliverables
+
+- Script `backup`, `restore`, `schema:check`, `ops:check`.
+- Tài liệu vận hành phase 23.
+- Quy trình release có đường lui rõ.
+
+### Tiêu chí hoàn thành
+
+- Có thể release mà không phải nhớ tay quá nhiều bước.
+- Có thể rollback dữ liệu từ backup gần nhất.
+- Có thể xác nhận health và schema trước khi tắt maintenance mode.
+
+### Tài liệu tham chiếu
+
+- [Phase 23 Deploy, Backup, Restore, Rollback](/Users/hminhnhut/Documents/Check_bot/docs/phase-23-deploy-backup-rollback.md)
