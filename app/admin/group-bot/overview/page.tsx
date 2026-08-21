@@ -78,6 +78,12 @@ export default function GroupBotOverviewPage() {
       <a className="secondary" href="/admin/group-bot">Quay lại dashboard</a>
     </header>
 
+    <nav className="nav-pills" aria-label="Group bot navigation">
+      <a href="/admin/group-bot">Dashboard</a>
+      <a className="active" href="/admin/group-bot/overview">Overview</a>
+      <a href="/">Trang chủ</a>
+    </nav>
+
     <section className="toolbar">
       <label style={{ margin: 0, minWidth: 220 }}>
         Khung thời gian

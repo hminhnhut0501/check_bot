@@ -350,6 +350,15 @@ export default function GroupBotAdminPage() {
       </div>
     </header>
 
+    <nav className="nav-pills" aria-label="Group bot navigation">
+      <a className="active" href="/admin/group-bot">Dashboard</a>
+      <a href="/admin/group-bot/overview">Overview</a>
+      <button type="button" className="secondary" onClick={() => setActiveTab('settings')}>Settings</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('rules')}>Rules</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('members')}>Members</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('audit')}>Audit</button>
+    </nav>
+
     <div className="inbox-grid">
       <section className="queue">
         <div className="section-title"><h2>Groups</h2><span>{groups.length}</span></div>
