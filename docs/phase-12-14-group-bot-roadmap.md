@@ -148,3 +148,40 @@ Nếu đi theo chuỗi này, hệ thống sẽ tiến hoá theo đúng thứ t�
 4. Dọn sạch và ổn định lâu dài.
 
 Đây là đường đi phù hợp nhất để Cú bot trở thành một hệ thống quản trị group gọn, nhẹ và bền.
+
+---
+
+## Phase 15: Schema Standardization and Drift Control
+
+### Mục tiêu
+
+Chốt một đường migration chuẩn, biết rõ schema nào là source of truth, và giảm tối đa rủi ro khi migrate giữa local, staging, và production.
+
+### Phạm vi
+
+- Chốt version cho core schema và seed.
+- Thêm checkpoint metadata cho schema group-bot.
+- Thêm view tổng hợp cho group config.
+- Bổ sung index còn thiếu cho query nóng.
+- Chuẩn hóa comment/schema docs trực tiếp trong DB.
+- Tạo quy trình kiểm tra drift trước khi release.
+
+### Deliverables
+
+- 1 migration standardization rõ ràng.
+- 1 bảng version checkpoint cho schema.
+- 1 view config tổng hợp cho admin/API.
+- 1 checklist kiểm tra schema trước deploy.
+
+### Tiêu chí hoàn thành
+
+- Không còn mơ hồ migration nào là core, migration nào là seed.
+- Có thể kiểm tra DB đang thiếu gì trước khi release.
+- Admin/API có một view chuẩn để lấy config nhóm.
+
+### Khuyến nghị thực thi
+
+1. Chạy `0005_group_bot_core`.
+2. Chạy `0006_phase14_seed_group_bot`.
+3. Chạy `0007_phase15_schema_standardization`.
+4. Dùng `schema:check` hoặc SQL check trước khi deploy.
