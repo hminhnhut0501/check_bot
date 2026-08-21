@@ -206,3 +206,36 @@ export async function listAudit(groupId: string) {
   const supabase = createServerSupabaseClient();
   return supabase.from('bot_audit_logs').select('*').eq('group_id', groupId).order('created_at', { ascending: false }).limit(200);
 }
+
+export async function summarizeAudit(groupId: string, sinceAt: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('bot_audit_logs')
+    .select('action, resource_type, actor_type, created_at, new_data')
+    .eq('group_id', groupId)
+    .gte('created_at', sinceAt)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (error) return { data: null, error };
+
+  const topActions: Record<string, number> = {};
+  const topResources: Record<string, number> = {};
+  const topActors: Record<string, number> = {};
+
+  for (const row of data ?? []) {
+    topActions[row.action] = (topActions[row.action] ?? 0) + 1;
+    topResources[row.resource_type] = (topResources[row.resource_type] ?? 0) + 1;
+    topActors[row.actor_type] = (topActors[row.actor_type] ?? 0) + 1;
+  }
+
+  return {
+    data: {
+      count: data?.length ?? 0,
+      top_actions: Object.entries(topActions).map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+      top_resources: Object.entries(topResources).map(([resource_type, count]) => ({ resource_type, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+      top_actors: Object.entries(topActors).map(([actor_type, count]) => ({ actor_type, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+    },
+    error: null,
+  };
+}
