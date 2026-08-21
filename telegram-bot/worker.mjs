@@ -1,23 +1,46 @@
+import { createClient } from '@supabase/supabase-js';
+
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const apiBase = process.env.SCAMSHIELD_API_URL;
 const internalSecret = process.env.INTERNAL_API_SECRET;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!token || !apiBase || !internalSecret) {
-  throw new Error('TELEGRAM_BOT_TOKEN, SCAMSHIELD_API_URL and INTERNAL_API_SECRET are required');
+if (!token || !apiBase || !internalSecret || !supabaseUrl || !supabaseKey) {
+  throw new Error('TELEGRAM_BOT_TOKEN, SCAMSHIELD_API_URL, INTERNAL_API_SECRET, NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
 }
 
 const telegram = `https://api.telegram.org/bot${token}`;
-const sessions = new Map();
+const supabase = createClient(supabaseUrl, supabaseKey, { auth: { autoRefreshToken: false, persistSession: false } });
 let offset = 0;
 
-async function callTelegram(method, body = {}) {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callTelegram(method, body = {}, attempt = 0) {
   const response = await fetch(`${telegram}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const result = await response.json();
-  if (!result.ok) throw new Error(result.description ?? `Telegram ${method} failed`);
+
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result?.ok) {
+    const retryable = response.status >= 500 || response.status === 429;
+    if (retryable && attempt < 2) {
+      await delay(250 * 2 ** attempt);
+      return callTelegram(method, body, attempt + 1);
+    }
+    throw new Error(result?.description ?? `Telegram ${method} failed`);
+  }
+
   return result.result;
 }
 
@@ -25,96 +48,139 @@ async function send(chatId, text) {
   await callTelegram('sendMessage', { chat_id: chatId, text });
 }
 
-async function createReport(chatId, state, messageId) {
-  const response = await fetch(`${apiBase}/api/v1/reports`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-internal-secret': internalSecret, 'x-idempotency-key': `telegram:${chatId}:${messageId}` },
-    body: JSON.stringify({
-      source_type: 'telegram',
-      reporter_chat_id: String(chatId),
-      source_chat_id: String(chatId),
-      source_message_id: String(messageId),
-      target_type: state.targetType,
-      target_name: state.targetName,
-      incident_type: state.incidentType,
-      description: state.description,
-      evidence_text: state.evidence,
-      idempotency_key: `telegram:${chatId}:${messageId}`,
-    }),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? 'Report creation failed');
-  return result.report;
+function normalize(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-async function handleMessage(message) {
-  const chatId = message.chat.id;
-  const text = (message.text ?? '').trim();
-  if (text === '/start' || text === '/help') {
-    await send(chatId, 'ScamShield\n/check <thông tin> để tra cứu\n/report để gửi báo cáo mới');
-    return;
-  }
-  if (text.startsWith('/check ')) {
-    const query = encodeURIComponent(text.slice(7).trim());
-    const response = await fetch(`${apiBase}/api/v1/lookup?q=${query}`, { headers: { 'x-internal-secret': internalSecret } });
-    const result = await response.json();
-    await send(chatId, result.matches?.length ? JSON.stringify(result.matches.slice(0, 5), null, 2) : 'Chưa tìm thấy dữ liệu xác minh. Không tìm thấy không đồng nghĩa an toàn.');
-    return;
-  }
-  if (text === '/report') {
-    sessions.set(chatId, { step: 'targetType' });
-    await send(chatId, 'Bước 1/5: loại đối tượng? Ví dụ: phone, bank_account, telegram_user, website');
-    return;
-  }
+function detectSignals(text) {
+  return {
+    normalized: normalize(text),
+    hasLink: /(https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text),
+    hasPhone: /(?:\+?\d[\d\s().-]{7,}\d)/.test(text),
+    mentions: (text.match(/@\w+/g) ?? []).length,
+  };
+}
 
-  const state = sessions.get(chatId);
-  if (!state) return send(chatId, 'Gửi /report để tạo báo cáo hoặc /help để xem hướng dẫn.');
-  if (state.step === 'targetType') {
-    state.targetType = text;
-    state.step = 'targetName';
-    return send(chatId, 'Bước 2/5: nhập tên, số điện thoại, tài khoản hoặc URL cần báo cáo.');
+async function loadPolicy(chatId) {
+  const { data: group } = await supabase.from('bot_groups').select('id, telegram_chat_id, title, username, status').eq('telegram_chat_id', String(chatId)).maybeSingle();
+  if (!group || group.status !== 'active') return null;
+  const [settings, rules, blacklist, welcomes] = await Promise.all([
+    supabase.from('bot_group_settings').select('*').eq('group_id', group.id).maybeSingle(),
+    supabase.from('bot_moderation_rules').select('*').eq('group_id', group.id).eq('enabled', true).order('priority', { ascending: true }),
+    supabase.from('bot_blacklist_items').select('*').or(`group_id.eq.${group.id},group_id.is.null`).eq('status', 'active'),
+    supabase.from('bot_welcome_messages').select('*').eq('group_id', group.id).eq('enabled', true).order('created_at', { ascending: true }),
+  ]);
+  return {
+    group,
+    settings: settings.data ?? { moderation_enabled: true, welcome_enabled: true, join_gate_enabled: false, delete_link_enabled: true, delete_keyword_enabled: true, auto_restrict_enabled: false },
+    rules: rules.data ?? [],
+    blacklist: blacklist.data ?? [],
+    welcomes: welcomes.data ?? [],
+  };
+}
+
+async function logEvent(groupId, actorType, action, resourceType, resourceId, payload = {}) {
+  await supabase.from('bot_audit_logs').insert({ group_id: groupId, actor_type: actorType, action, resource_type: resourceType, resource_id: resourceId, new_data: payload });
+}
+
+async function upsertMember(groupId, message, status = 'member') {
+  const userId = String(message.from?.id ?? '');
+  if (!userId) return;
+  await supabase.from('bot_members').upsert({
+    group_id: groupId,
+    telegram_user_id: userId,
+    username: message.from?.username ?? null,
+    display_name: [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || null,
+    status,
+    last_seen_at: new Date().toISOString(),
+  }, { onConflict: 'group_id,telegram_user_id' });
+}
+
+function evaluate(policy, text, userId, username) {
+  const { settings, rules, blacklist } = policy;
+  const { normalized, hasLink, hasPhone, mentions } = detectSignals(text);
+  const userHit = blacklist.find((item) => item.item_type === 'user_id' && normalize(item.item_value) === normalize(userId));
+  if (userHit) return { action: 'ban', reason: 'blacklist:user_id' };
+  if (username) {
+    const usernameHit = blacklist.find((item) => item.item_type === 'username' && normalize(item.item_value) === normalize(username));
+    if (usernameHit) return { action: 'ban', reason: 'blacklist:username' };
   }
-  if (state.step === 'targetName') {
-    state.targetName = text;
-    state.step = 'incidentType';
-    return send(chatId, 'Bước 3/5: loại vụ việc? Ví dụ: investment_scam, ecommerce_scam, phishing.');
+  const keywordHit = blacklist.find((item) => ['keyword', 'phrase'].includes(item.item_type) && normalized.includes(normalize(item.item_value)));
+  if (keywordHit) return { action: 'delete', reason: 'blacklist:keyword' };
+  if (settings.delete_link_enabled && hasLink) return { action: 'delete', reason: 'link_detected' };
+  if (settings.delete_keyword_enabled && hasPhone) return { action: 'delete', reason: 'phone_detected' };
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+    if ((rule.rule_type === 'keyword' || rule.rule_type === 'repeated_text') && normalized.includes(normalize(rule.pattern))) return { action: rule.action, reason: `rule:${rule.id}` };
+    if (rule.rule_type === 'link' && hasLink) return { action: rule.action, reason: `rule:${rule.id}` };
+    if (rule.rule_type === 'mention' && mentions > Number(rule.pattern || 0)) return { action: rule.action, reason: `rule:${rule.id}` };
   }
-  if (state.step === 'incidentType') {
-    state.incidentType = text;
-    state.step = 'description';
-    return send(chatId, 'Bước 4/5: mô tả sự việc, thời gian và thiệt hại nếu có.');
-  }
-  if (state.step === 'description') {
-    state.description = text;
-    state.step = 'evidence';
-    return send(chatId, 'Bước 5/5: nhập bằng chứng hoặc gõ “không có”.');
-  }
-  if (state.step === 'evidence') {
-    state.evidence = text === 'không có' ? '' : text;
-    try {
-      const report = await createReport(chatId, state, message.message_id);
-      await send(chatId, `Đã tiếp nhận báo cáo ${report.tracking_code}. Trạng thái: ${report.status}.`);
-    } catch (error) {
-      await send(chatId, `Không thể tạo báo cáo lúc này: ${error.message}`);
-    } finally {
-      sessions.delete(chatId);
+  return { action: 'allow' };
+}
+
+async function handleGroupMessage(message) {
+  const policy = await loadPolicy(message.chat.id);
+  if (!policy) return;
+  const text = (message.text ?? '').trim();
+  if (message.new_chat_members?.length) {
+    for (const member of message.new_chat_members) {
+      await upsertMember(policy.group.id, { from: member }, 'member');
+      await logEvent(policy.group.id, 'bot', 'join', 'member', String(member.id), { username: member.username ?? null });
+      if (policy.settings.welcome_enabled && policy.welcomes.length) {
+        const welcome = policy.welcomes[0].message_text.replaceAll('{name}', [member.first_name, member.last_name].filter(Boolean).join(' ') || member.username || 'bạn').replaceAll('{group}', message.chat.title ?? 'group');
+        await send(message.chat.id, welcome);
+      }
     }
+  }
+  if (!text) return;
+  const username = message.from?.username ? `@${message.from.username}` : null;
+  await upsertMember(policy.group.id, message, 'member');
+  const decision = evaluate(policy, text, String(message.from?.id ?? ''), username);
+  if (decision.action === 'allow') return;
+  if (decision.action === 'delete' || decision.action === 'warn' || decision.action === 'restrict' || decision.action === 'ban') {
+    await callTelegram('deleteMessage', { chat_id: message.chat.id, message_id: message.message_id }).catch(() => null);
+    await logEvent(policy.group.id, 'bot', 'message_deleted', 'message', String(message.message_id), { reason: decision.reason, userId: String(message.from?.id ?? '') });
+  }
+  if (decision.action === 'warn') await send(message.chat.id, 'Cảnh báo: nội dung bị gắn cờ bởi rule group.');
+  if (decision.action === 'restrict') {
+    await callTelegram('restrictChatMember', { chat_id: message.chat.id, user_id: Number(message.from?.id ?? 0), permissions: { can_send_messages: false, can_send_audios: false, can_send_documents: false, can_send_photos: false, can_send_videos: false, can_send_video_notes: false, can_send_voice_notes: false, can_send_polls: false, can_send_other_messages: false, can_add_web_page_previews: false } }).catch(() => null);
+    await logEvent(policy.group.id, 'bot', 'restrict', 'member', String(message.from?.id ?? ''), { reason: decision.reason });
+  }
+  if (decision.action === 'ban') {
+    await callTelegram('banChatMember', { chat_id: message.chat.id, user_id: Number(message.from?.id ?? 0) }).catch(() => null);
+    await logEvent(policy.group.id, 'bot', 'ban', 'member', String(message.from?.id ?? ''), { reason: decision.reason });
+  }
+}
+
+async function handleUpdate(update) {
+  if (update.message) await handleGroupMessage(update.message);
+  if (update.my_chat_member) {
+    const chat = update.my_chat_member.chat;
+    const policy = await loadPolicy(chat.id);
+    if (!policy) return;
+    const newStatus = update.my_chat_member.new_chat_member?.status ?? 'member';
+    await logEvent(policy.group.id, 'bot', 'member_status', 'group', String(chat.id), { status: newStatus });
   }
 }
 
 async function poll() {
-  const updates = await callTelegram('getUpdates', { offset, timeout: 25, allowed_updates: ['message'] });
+  const updates = await callTelegram('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'my_chat_member'] });
   for (const update of updates) {
     offset = update.update_id + 1;
-    if (update.message) await handleMessage(update.message);
+    await handleUpdate(update);
   }
 }
 
-async function processBroadcastJob() {
-  const response = await fetch(`${apiBase}/api/internal/broadcasts/dispatch`, { method: 'POST', headers: { 'x-internal-secret': internalSecret } });
-  if (!response.ok) console.error('Broadcast dispatch failed', await response.text());
+async function heartbeat() {
+  await fetch(`${apiBase}/api/internal/group-bot/ping`, { method: 'POST', headers: { 'x-internal-secret': internalSecret } }).catch(() => null);
 }
 
 while (true) {
-  try { await poll(); await processBroadcastJob(); } catch (error) { console.error(error); await new Promise((resolve) => setTimeout(resolve, 3000)); }
+  try {
+    await poll();
+    await heartbeat();
+  } catch (error) {
+    console.error(error);
+    await delay(3000);
+  }
 }
