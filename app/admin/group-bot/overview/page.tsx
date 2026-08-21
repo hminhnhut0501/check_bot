@@ -33,6 +33,11 @@ export default function GroupBotOverviewPage() {
   const [sinceHours, setSinceHours] = useState(24);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const totalMembers = rows.reduce((sum, row) => sum + row.metrics.member_count, 0);
+  const totalRules = rows.reduce((sum, row) => sum + row.metrics.rule_count, 0);
+  const totalActions24h = rows.reduce((sum, row) => sum + row.metrics.action_count_24h, 0);
+  const totalActiveRules = rows.reduce((sum, row) => sum + row.metrics.enabled_rule_count, 0);
+  const readyState = Boolean(health?.ok && rows.length > 0);
 
   async function authHeaders() {
     const { data } = await createBrowserSupabaseClient().auth.getSession();
@@ -126,6 +131,29 @@ export default function GroupBotOverviewPage() {
         </article>
       </div>
     )}
+
+    <div className="overview-grid">
+      <article className="overview-card">
+        <h3>Scale readiness</h3>
+        <strong>{readyState ? 'Ready' : 'Needs attention'}</strong>
+        <p className="muted">{rows.length} groups · {totalMembers} members</p>
+      </article>
+      <article className="overview-card">
+        <h3>Active rules</h3>
+        <strong>{totalActiveRules}</strong>
+        <p className="muted">{totalRules} total rules</p>
+      </article>
+      <article className="overview-card">
+        <h3>Action load</h3>
+        <strong>{totalActions24h}</strong>
+        <p className="muted">Across the selected window</p>
+      </article>
+      <article className="overview-card">
+        <h3>Operational state</h3>
+        <strong>{health?.ok ? 'Healthy' : 'Check'}</strong>
+        <p className="muted">Audit 24h: {health?.audit_24h?.count ?? 0}</p>
+      </article>
+    </div>
 
     {trend.length > 0 && (
       <article className="overview-card">

@@ -244,3 +244,29 @@ Khóa hẳn phần legacy khỏi đường vận hành chính, giữ lại chỉ
 - Không còn nhầm lẫn giữa đường cũ và đường mới.
 - Người dùng thực tế chỉ thấy Group Bot trong hành trình vận hành chính.
 - Legacy chỉ còn là lịch sử, không còn là production path.
+
+---
+
+## Phase 25: Final Polish and Scale Readiness
+
+### Mục tiêu
+
+Khóa hẳn giao diện và tín hiệu vận hành ở mức đủ tự tin để mở rộng thêm group mà không phải chỉnh lại kiến trúc.
+
+### Phạm vi
+
+- Thêm scale readiness trên overview.
+- Làm rõ trạng thái healthy / needs attention.
+- Giữ UI gọn, ít nhiễu, dễ đọc nhanh.
+- Không thêm module mới.
+
+### Deliverables
+
+- Khối scale readiness trên overview.
+- Tài liệu [Phase 25 Final Polish And Scale Readiness](/Users/hminhnhut/Documents/Check_bot/docs/phase-25-final-polish-scale-readiness.md).
+
+### Tiêu chí hoàn thành
+
+- Dashboard cho biết ngay hệ thống đang sẵn sàng tới đâu.
+- Có thể nhìn số group, member, rule, và action load trong một nhịp mắt.
+- UI kết thúc ở trạng thái gọn, rõ, đủ bền.
