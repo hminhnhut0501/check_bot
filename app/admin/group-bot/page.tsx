@@ -20,6 +20,11 @@ type Audit = { id: string; action: string; resource_type: string; resource_id?: 
 type BlacklistItem = { id: string; item_type: string; item_value: string; reason?: string | null; status: string };
 type Welcome = { id: string; variant_name: string; message_text: string; enabled: boolean };
 type MemberEvent = { id: string; telegram_user_id: string; event_type: string; payload_json: Record<string, unknown>; created_at: string };
+type MemberDetail = {
+  member: Member | null;
+  events: MemberEvent[];
+  audit: Audit[];
+};
 
 const tabs = ['settings', 'rules', 'members', 'audit'] as const;
 type Tab = typeof tabs[number];
@@ -45,6 +50,7 @@ export default function GroupBotAdminPage() {
   const [memberSearch, setMemberSearch] = useState('');
   const [memberStatus, setMemberStatus] = useState('');
   const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [memberDetail, setMemberDetail] = useState<MemberDetail | null>(null);
   const [message, setMessage] = useState('');
 
   async function authHeaders() {
@@ -235,6 +241,14 @@ export default function GroupBotAdminPage() {
     if (!response.ok) return setMessage(result.error ?? 'Không cập nhật member');
     setMessage(`Đã ${action} member`);
     await loadDetail(selectedGroupId);
+    await loadMemberDetail(selectedGroupId, userId);
+  }
+
+  async function loadMemberDetail(groupId: string, userId: string) {
+    const response = await fetch(`/api/admin/group-bot/members/${encodeURIComponent(userId)}?group_id=${encodeURIComponent(groupId)}`, { headers: await authHeaders() });
+    const result = await response.json();
+    if (!response.ok) return setMessage(result.error ?? 'Không tải được member detail');
+    setMemberDetail(result);
   }
 
   async function patchRule(rule: Rule, patch: Partial<Rule>) {
@@ -506,7 +520,10 @@ export default function GroupBotAdminPage() {
                 </select>
               </div>
               {visibleMembers.map((member) => (
-                <div className={`history ${selectedMemberId === member.telegram_user_id ? 'selected' : ''}`} key={member.telegram_user_id} onClick={() => setSelectedMemberId(member.telegram_user_id)}>
+                <div className={`history ${selectedMemberId === member.telegram_user_id ? 'selected' : ''}`} key={member.telegram_user_id} onClick={() => {
+                  setSelectedMemberId(member.telegram_user_id);
+                  if (selectedGroupId) void loadMemberDetail(selectedGroupId, member.telegram_user_id);
+                }}>
                   <strong>{member.display_name ?? member.username ?? member.telegram_user_id}</strong>
                   <small>{member.status}{member.last_seen_at ? ` · ${new Date(member.last_seen_at).toLocaleString('vi-VN')}` : ''}</small>
                   <span className="actions">
@@ -518,7 +535,18 @@ export default function GroupBotAdminPage() {
               ))}
               <article>
                 <h4>Member history</h4>
-                {memberEvents.length ? memberEvents.map((event) => <p className="history" key={event.id}><strong>{event.event_type}</strong> · {event.telegram_user_id}<small>{new Date(event.created_at).toLocaleString('vi-VN')}</small></p>) : <p className="muted">Chọn một member để xem lịch sử.</p>}
+                {selectedMemberId && memberDetail ? (
+                  <>
+                    <p className="muted">
+                      {memberDetail.member ? `${memberDetail.member.display_name ?? memberDetail.member.username ?? selectedMemberId} · ${memberDetail.member.status}` : selectedMemberId}
+                    </p>
+                    {memberDetail.events.length ? memberDetail.events.map((event) => <p className="history" key={event.id}><strong>{event.event_type}</strong> · {event.telegram_user_id}<small>{new Date(event.created_at).toLocaleString('vi-VN')}</small></p>) : <p className="muted">No lifecycle events.</p>}
+                    <h5>Audit</h5>
+                    {memberDetail.audit.length ? memberDetail.audit.map((item) => <p className="history" key={item.id}><strong>{item.action}</strong><small>{new Date(item.created_at).toLocaleString('vi-VN')}</small></p>) : <p className="muted">No audit records.</p>}
+                  </>
+                ) : (
+                  <p className="muted">Chọn một member để xem lịch sử.</p>
+                )}
               </article>
             </article>
           )}

@@ -168,9 +168,28 @@ export async function listMembers(groupId: string) {
   return supabase.from('bot_members').select('*').eq('group_id', groupId).order('last_seen_at', { ascending: false }).limit(200);
 }
 
+export async function getMemberBundle(groupId: string, userId: string) {
+  const supabase = createServerSupabaseClient();
+  const [member, events, audit] = await Promise.all([
+    supabase.from('bot_members').select('*').eq('group_id', groupId).eq('telegram_user_id', userId).maybeSingle(),
+    supabase.from('bot_member_events').select('*').eq('group_id', groupId).eq('telegram_user_id', userId).order('created_at', { ascending: false }).limit(50),
+    supabase.from('bot_audit_logs').select('*').eq('group_id', groupId).eq('resource_type', 'member').eq('resource_id', userId).order('created_at', { ascending: false }).limit(50),
+  ]);
+  return { member, events, audit };
+}
+
 export async function updateMemberStatus(groupId: string, userId: string, status: string) {
   const supabase = createServerSupabaseClient();
   return supabase.from('bot_members').update({ status, left_at: status === 'banned' ? new Date().toISOString() : null }).eq('group_id', groupId).eq('telegram_user_id', userId).select('*').single();
+}
+
+export async function upsertMemberSnapshot(groupId: string, userId: string, snapshot: Record<string, unknown>) {
+  const supabase = createServerSupabaseClient();
+  return supabase.from('bot_members').upsert({
+    group_id: groupId,
+    telegram_user_id: userId,
+    ...snapshot,
+  }, { onConflict: 'group_id,telegram_user_id' }).select('*').single();
 }
 
 export async function recordMemberEvent(groupId: string, userId: string, eventType: string, payloadJson: Record<string, unknown>) {
