@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
+import { previewNormalizedBlacklistValue, previewWelcomeMessage } from '@/lib/group-bot/normalize';
 
 type Group = { id: string; telegram_chat_id: string; title: string; username?: string | null; status: string };
 type GroupSettings = {
@@ -39,9 +40,12 @@ export default function GroupBotAdminPage() {
   const [username, setUsername] = useState('');
   const [itemType, setItemType] = useState('keyword');
   const [itemValue, setItemValue] = useState('');
+  const [blacklistPreview, setBlacklistPreview] = useState('');
   const [welcomeText, setWelcomeText] = useState('Chào {name} vào {group}!');
   const [welcomeVariant, setWelcomeVariant] = useState('default');
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
+  const [welcomePreviewName, setWelcomePreviewName] = useState('Minh');
+  const [welcomePreviewGroup, setWelcomePreviewGroup] = useState('Cú Bot Demo Group');
   const [previewText, setPreviewText] = useState('Mời ghé https://spam.test');
   const [previewUserId, setPreviewUserId] = useState('123456');
   const [previewUsername, setPreviewUsername] = useState('@demo_spam');
@@ -169,6 +173,10 @@ export default function GroupBotAdminPage() {
     setItemValue('');
     await loadDetail(selectedGroupId);
   }
+
+  useEffect(() => {
+    setBlacklistPreview(itemValue ? previewNormalizedBlacklistValue(itemValue) : '');
+  }, [itemValue]);
 
   async function patchBlacklist(item: BlacklistItem, patch: Partial<BlacklistItem>) {
     const response = await fetch('/api/admin/group-bot/blacklist', {
@@ -362,9 +370,9 @@ export default function GroupBotAdminPage() {
 
           <article>
             <h3>Quick tools</h3>
-          <form onSubmit={addBlacklist} className="stack-form">
-            <label>Loại
-              <select value={itemType} onChange={(e) => setItemType(e.target.value)}>
+            <form onSubmit={addBlacklist} className="stack-form">
+              <label>Loại
+                <select value={itemType} onChange={(e) => setItemType(e.target.value)}>
                 <option value="keyword">keyword</option>
                 <option value="phrase">phrase</option>
                 <option value="user_id">user_id</option>
@@ -373,15 +381,21 @@ export default function GroupBotAdminPage() {
                 <option value="link">link</option>
                 <option value="phone">phone</option>
               </select>
-            </label>
-            <label>Giá trị<input value={itemValue} onChange={(e) => setItemValue(e.target.value)} required /></label>
-            <button>Thêm blacklist</button>
+              </label>
+              <label>Giá trị<input value={itemValue} onChange={(e) => setItemValue(e.target.value)} required /></label>
+              {blacklistPreview ? <p className="muted">Normalized preview: {blacklistPreview}</p> : null}
+              <button>Thêm blacklist</button>
             </form>
           <label><input type="checkbox" checked={welcomeEnabled} onChange={(e) => setWelcomeEnabled(e.target.checked)} /> Enable welcome on next add</label>
           <form onSubmit={addWelcome} className="stack-form">
             <label>Variant<input value={welcomeVariant} onChange={(e) => setWelcomeVariant(e.target.value)} /></label>
             <label><input type="checkbox" checked={welcomeEnabled} onChange={(e) => setWelcomeEnabled(e.target.checked)} /> Enabled</label>
             <label>Tin nhắn chào<textarea value={welcomeText} onChange={(e) => setWelcomeText(e.target.value)} /></label>
+            <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <label>Name preview<input value={welcomePreviewName} onChange={(e) => setWelcomePreviewName(e.target.value)} /></label>
+              <label>Group preview<input value={welcomePreviewGroup} onChange={(e) => setWelcomePreviewGroup(e.target.value)} /></label>
+            </div>
+            <p className="muted">Preview: {previewWelcomeMessage(welcomeText, welcomePreviewName, welcomePreviewGroup)}</p>
             <button>Thêm welcome</button>
           </form>
           <div>
