@@ -100,22 +100,22 @@ function evaluate(policy, text, userId, username) {
   const { settings, rules, blacklist } = policy;
   const { normalized, hasLink, hasPhone, mentions } = detectSignals(text);
   const userHit = blacklist.find((item) => item.item_type === 'user_id' && normalize(item.item_value) === normalize(userId));
-  if (userHit) return { action: 'ban', reason: 'blacklist:user_id' };
+  if (userHit) return { action: 'ban', reason: 'blacklist:user_id', signals: { normalized, hasLink, hasPhone, mentions } };
   if (username) {
     const usernameHit = blacklist.find((item) => item.item_type === 'username' && normalize(item.item_value) === normalize(username));
-    if (usernameHit) return { action: 'ban', reason: 'blacklist:username' };
+    if (usernameHit) return { action: 'ban', reason: 'blacklist:username', signals: { normalized, hasLink, hasPhone, mentions } };
   }
   const keywordHit = blacklist.find((item) => ['keyword', 'phrase'].includes(item.item_type) && normalized.includes(normalize(item.item_value)));
-  if (keywordHit) return { action: 'delete', reason: 'blacklist:keyword' };
-  if (settings.delete_link_enabled && hasLink) return { action: 'delete', reason: 'link_detected' };
-  if (settings.delete_keyword_enabled && hasPhone) return { action: 'delete', reason: 'phone_detected' };
+  if (keywordHit) return { action: 'delete', reason: 'blacklist:keyword', signals: { normalized, hasLink, hasPhone, mentions } };
+  if (settings.delete_link_enabled && hasLink) return { action: 'delete', reason: 'link_detected', signals: { normalized, hasLink, hasPhone, mentions } };
+  if (settings.delete_keyword_enabled && hasPhone) return { action: 'delete', reason: 'phone_detected', signals: { normalized, hasLink, hasPhone, mentions } };
   for (const rule of rules) {
     if (!rule.enabled) continue;
-    if ((rule.rule_type === 'keyword' || rule.rule_type === 'repeated_text') && normalized.includes(normalize(rule.pattern))) return { action: rule.action, reason: `rule:${rule.id}` };
-    if (rule.rule_type === 'link' && hasLink) return { action: rule.action, reason: `rule:${rule.id}` };
-    if (rule.rule_type === 'mention' && mentions > Number(rule.pattern || 0)) return { action: rule.action, reason: `rule:${rule.id}` };
+    if ((rule.rule_type === 'keyword' || rule.rule_type === 'repeated_text') && normalized.includes(normalize(rule.pattern))) return { action: rule.action, reason: `rule:${rule.id}`, signals: { normalized, hasLink, hasPhone, mentions } };
+    if (rule.rule_type === 'link' && hasLink) return { action: rule.action, reason: `rule:${rule.id}`, signals: { normalized, hasLink, hasPhone, mentions } };
+    if (rule.rule_type === 'mention' && mentions > Number(rule.pattern || 0)) return { action: rule.action, reason: `rule:${rule.id}`, signals: { normalized, hasLink, hasPhone, mentions } };
   }
-  return { action: 'allow' };
+  return { action: 'allow', signals: { normalized, hasLink, hasPhone, mentions } };
 }
 
 async function handleGroupMessage(message) {
@@ -139,16 +139,16 @@ async function handleGroupMessage(message) {
   if (decision.action === 'allow') return;
   if (decision.action === 'delete' || decision.action === 'warn' || decision.action === 'restrict' || decision.action === 'ban') {
     await callTelegram('deleteMessage', { chat_id: message.chat.id, message_id: message.message_id }).catch(() => null);
-    await logEvent(policy.group.id, 'bot', 'message_deleted', 'message', String(message.message_id), { reason: decision.reason, userId: String(message.from?.id ?? '') });
+    await logEvent(policy.group.id, 'bot', 'message_deleted', 'message', String(message.message_id), { reason: decision.reason, userId: String(message.from?.id ?? ''), signals: decision.signals });
   }
   if (decision.action === 'warn') await send(message.chat.id, 'Cảnh báo: nội dung bị gắn cờ bởi rule group.');
   if (decision.action === 'restrict') {
     await callTelegram('restrictChatMember', { chat_id: message.chat.id, user_id: Number(message.from?.id ?? 0), permissions: { can_send_messages: false, can_send_audios: false, can_send_documents: false, can_send_photos: false, can_send_videos: false, can_send_video_notes: false, can_send_voice_notes: false, can_send_polls: false, can_send_other_messages: false, can_add_web_page_previews: false } }).catch(() => null);
-    await logEvent(policy.group.id, 'bot', 'restrict', 'member', String(message.from?.id ?? ''), { reason: decision.reason });
+    await logEvent(policy.group.id, 'bot', 'restrict', 'member', String(message.from?.id ?? ''), { reason: decision.reason, signals: decision.signals });
   }
   if (decision.action === 'ban') {
     await callTelegram('banChatMember', { chat_id: message.chat.id, user_id: Number(message.from?.id ?? 0) }).catch(() => null);
-    await logEvent(policy.group.id, 'bot', 'ban', 'member', String(message.from?.id ?? ''), { reason: decision.reason });
+    await logEvent(policy.group.id, 'bot', 'ban', 'member', String(message.from?.id ?? ''), { reason: decision.reason, signals: decision.signals });
   }
 }
 

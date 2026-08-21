@@ -28,6 +28,7 @@ type RuleRow = {
   rule_type: string;
   pattern: string;
   action: 'delete' | 'warn' | 'restrict' | 'ban' | 'approve';
+  severity: number;
 };
 
 type BlacklistRow = {
@@ -45,6 +46,20 @@ export type GroupPolicy = {
   rules: RuleRow[];
   blacklist: BlacklistRow[];
   welcomes: WelcomeRow[];
+};
+
+export type ModerationDecision = {
+  action: 'ignore' | 'allow' | 'delete' | 'warn' | 'restrict' | 'ban' | 'approve';
+  reason: string;
+  matched_rules: string[];
+  matched_blacklist: string[];
+  signals: {
+    normalized: string;
+    hasLink: boolean;
+    hasPhone: boolean;
+    mentions: number;
+  };
+  severity: number;
 };
 
 export async function loadGroupPolicy(chatId: string): Promise<GroupPolicy | null> {
@@ -85,33 +100,58 @@ export function invalidateGroupPolicy(chatId: string) {
   invalidateCachedValue(`policy:${chatId}`);
 }
 
-export function evaluateMessage(policy: Awaited<ReturnType<typeof loadGroupPolicy>>, text: string, userId: string, username?: string | null) {
-  if (!policy) return { action: 'ignore' as const };
+export function evaluateModerationDecision(policy: GroupPolicy | null, text: string, userId: string, username?: string | null): ModerationDecision {
+  const signals = detectMessageSignals(text);
+  if (!policy) {
+    return { action: 'ignore', reason: 'policy_missing', matched_rules: [], matched_blacklist: [], signals, severity: 0 };
+  }
   const { settings, rules, blacklist } = policy;
-  const { normalized, hasLink, hasPhone, mentions } = detectMessageSignals(text);
+  const { normalized, hasLink, hasPhone, mentions } = signals;
+  const matched_rules: string[] = [];
+  const matched_blacklist: string[] = [];
 
   const userHit = blacklist.find((item) => item.item_type === 'user_id' && normalizeIdentifier(item.item_value) === normalizeIdentifier(userId));
-  if (userHit) return { action: 'ban' as const, reason: `blacklist:user_id:${userHit.item_value}` };
+  if (userHit) {
+    matched_blacklist.push(`user_id:${userHit.item_value}`);
+    return { action: 'ban', reason: `blacklist:user_id:${userHit.item_value}`, matched_rules, matched_blacklist, signals, severity: 10 };
+  }
 
   if (username) {
     const usernameHit = blacklist.find((item) => item.item_type === 'username' && normalizeValue(item.item_value) === normalizeValue(username));
-    if (usernameHit) return { action: 'ban' as const, reason: `blacklist:username:${usernameHit.item_value}` };
+    if (usernameHit) {
+      matched_blacklist.push(`username:${usernameHit.item_value}`);
+      return { action: 'ban', reason: `blacklist:username:${usernameHit.item_value}`, matched_rules, matched_blacklist, signals, severity: 10 };
+    }
   }
 
   const keywordHit = blacklist.find((item) => ['keyword', 'phrase'].includes(item.item_type) && normalized.includes(normalizeValue(item.item_value)));
-  if (keywordHit) return { action: 'delete' as const, reason: `blacklist:${keywordHit.item_type}:${keywordHit.item_value}` };
+  if (keywordHit) {
+    matched_blacklist.push(`${keywordHit.item_type}:${keywordHit.item_value}`);
+    return { action: 'delete', reason: `blacklist:${keywordHit.item_type}:${keywordHit.item_value}`, matched_rules, matched_blacklist, signals, severity: 7 };
+  }
 
-  if (settings.delete_link_enabled && hasLink) return { action: 'delete' as const, reason: 'link_detected' };
-  if (settings.delete_keyword_enabled && hasPhone) return { action: 'delete' as const, reason: 'phone_detected' };
+  if (settings.delete_link_enabled && hasLink) {
+    return { action: 'delete', reason: 'link_detected', matched_rules, matched_blacklist, signals, severity: 4 };
+  }
+  if (settings.delete_keyword_enabled && hasPhone) {
+    return { action: 'delete', reason: 'phone_detected', matched_rules, matched_blacklist, signals, severity: 4 };
+  }
 
   for (const rule of rules) {
     if (!rule.enabled) continue;
     if ((rule.rule_type === 'keyword' || rule.rule_type === 'repeated_text') && normalized.includes(normalizeValue(rule.pattern))) {
-      return { action: rule.action as 'delete' | 'warn' | 'restrict' | 'ban' | 'approve', reason: `rule:${rule.id}` };
+      matched_rules.push(rule.id);
+      return { action: rule.action, reason: `rule:${rule.id}`, matched_rules, matched_blacklist, signals, severity: rule.severity };
     }
-    if (rule.rule_type === 'link' && hasLink) return { action: rule.action as 'delete' | 'warn' | 'restrict' | 'ban' | 'approve', reason: `rule:${rule.id}` };
-    if (rule.rule_type === 'mention' && mentions > Number(rule.pattern || 0)) return { action: rule.action as 'delete' | 'warn' | 'restrict' | 'ban' | 'approve', reason: `rule:${rule.id}` };
+    if (rule.rule_type === 'link' && hasLink) {
+      matched_rules.push(rule.id);
+      return { action: rule.action, reason: `rule:${rule.id}`, matched_rules, matched_blacklist, signals, severity: rule.severity };
+    }
+    if (rule.rule_type === 'mention' && mentions > Number(rule.pattern || 0)) {
+      matched_rules.push(rule.id);
+      return { action: rule.action, reason: `rule:${rule.id}`, matched_rules, matched_blacklist, signals, severity: rule.severity };
+    }
   }
 
-  return { action: 'allow' as const };
+  return { action: 'allow', reason: 'no_match', matched_rules, matched_blacklist, signals, severity: 0 };
 }
