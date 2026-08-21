@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "bot": "node telegram-bot/worker.mjs",
     "test": "vitest run",
-    "backup": "node scripts/backup.mjs"
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

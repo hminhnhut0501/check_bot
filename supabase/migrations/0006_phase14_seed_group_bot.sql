@@ -1,4 +1,5 @@
--- Local development seed for the group-bot dashboard.
+-- Phase 14 seed: local development data for the group-bot dashboard.
+
 with seeded_group as (
   insert into public.bot_groups (telegram_chat_id, title, username, status)
   values ('-1001234567890', 'Cú Bot Demo Group', 'cubot_demo', 'active')
