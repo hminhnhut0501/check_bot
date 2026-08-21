@@ -217,3 +217,30 @@ Khóa quy trình release thành một nhịp an toàn: có backup, có kiểm tr
 ### Tài liệu tham chiếu
 
 - [Phase 23 Deploy, Backup, Restore, Rollback](/Users/hminhnhut/Documents/Check_bot/docs/phase-23-deploy-backup-rollback.md)
+
+---
+
+## Phase 24: Legacy Sunset and Architecture Lock
+
+### Mục tiêu
+
+Khóa hẳn phần legacy khỏi đường vận hành chính, giữ lại chỉ để tra cứu lịch sử và tránh lộn core hiện tại với mô hình cũ.
+
+### Phạm vi
+
+- Giữ Group Bot là dashboard chính duy nhất.
+- Đưa các route cũ vào trạng thái retire hoặc redirect.
+- Thêm trang legacy sunset làm điểm tham chiếu.
+- Chốt inventory legacy để biết phần nào còn tồn tại vì lịch sử.
+
+### Deliverables
+
+- Trang [Legacy Sunset](/Users/hminhnhut/Documents/Check_bot/app/admin/legacy/page.tsx).
+- Tài liệu [Phase 24 Legacy Sunset](/Users/hminhnhut/Documents/Check_bot/docs/phase-24-legacy-sunset.md).
+- Roadmap rõ ràng rằng phần cũ không còn là core vận hành.
+
+### Tiêu chí hoàn thành
+
+- Không còn nhầm lẫn giữa đường cũ và đường mới.
+- Người dùng thực tế chỉ thấy Group Bot trong hành trình vận hành chính.
+- Legacy chỉ còn là lịch sử, không còn là production path.
