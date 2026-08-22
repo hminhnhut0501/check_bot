@@ -17,7 +17,7 @@ type GroupSettings = {
 };
 type Member = { telegram_user_id: string; username?: string | null; display_name?: string | null; status: string; last_seen_at?: string | null };
 type Rule = { id: string; rule_type: string; pattern: string; action: string; severity: number; enabled: boolean; priority: number };
-type Audit = { id: string; action: string; resource_type: string; resource_id?: string | null; actor_type: string; actor_id?: string | null; created_at: string; new_data?: Record<string, unknown> | null };
+type Audit = { id: string; action: string; resource_type: string; resource_id?: string | null; actor_type: string; actor_id?: string | null; created_at: string; new_data?: Record<string, unknown> | null; event_family?: string | null; event_kind?: string | null; retention_days?: number | null; expires_at?: string | null };
 type BlacklistItem = { id: string; item_type: string; item_value: string; reason?: string | null; status: string };
 type Welcome = { id: string; variant_name: string; message_text: string; enabled: boolean };
 type MemberEvent = { id: string; telegram_user_id: string; event_type: string; payload_json: Record<string, unknown>; created_at: string };
@@ -35,6 +35,9 @@ export default function GroupBotAdminPage() {
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [groupDetail, setGroupDetail] = useState<{ group: Group; settings: GroupSettings | null; members: Member[]; rules: Rule[]; audit: Audit[]; blacklist: BlacklistItem[]; welcome: Welcome[]; member_events: MemberEvent[] } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('settings');
+  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [telegramChatId, setTelegramChatId] = useState('');
   const [title, setTitle] = useState('');
   const [username, setUsername] = useState('');
@@ -55,7 +58,21 @@ export default function GroupBotAdminPage() {
   const [memberStatus, setMemberStatus] = useState('');
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [memberDetail, setMemberDetail] = useState<MemberDetail | null>(null);
-  const [message, setMessage] = useState('');
+  const [auditFamily, setAuditFamily] = useState('');
+  const [auditActor, setAuditActor] = useState('');
+  const [auditResource, setAuditResource] = useState('');
+  const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [confirmState, setConfirmState] = useState<{ title: string; body: string; onConfirm: () => Promise<void> | void } | null>(null);
+
+  function notify(kind: 'success' | 'error' | 'info', text: string) {
+    setToast({ kind, text });
+    window.clearTimeout((window as unknown as { __toastTimer?: number }).__toastTimer);
+    (window as unknown as { __toastTimer?: number }).__toastTimer = window.setTimeout(() => setToast(null), 2600);
+  }
+
+  function requestConfirm(title: string, body: string, onConfirm: () => Promise<void> | void) {
+    setConfirmState({ title, body, onConfirm });
+  }
 
   async function authHeaders() {
     const { data } = await createBrowserSupabaseClient().auth.getSession();
@@ -63,17 +80,47 @@ export default function GroupBotAdminPage() {
   }
 
   async function loadGroups() {
+    setLoadingGroups(true);
     const response = await fetch('/api/admin/group-bot/groups', { headers: await authHeaders() });
     const result = await response.json();
     setGroups(result.groups ?? []);
     if (!selectedGroupId && result.groups?.length) setSelectedGroupId(result.groups[0].id);
+    setLoadingGroups(false);
+  }
+
+  async function copyGroupId(value: string) {
+    await navigator.clipboard.writeText(value);
+    notify('info', 'Đã copy group ID');
+  }
+
+  async function patchGroupStatus(groupId: string, status: 'paused' | 'active') {
+    setSubmitting(true);
+    const response = await fetch(`/api/admin/group-bot/groups/${groupId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ status }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setSubmitting(false);
+      return notify('error', result.error ?? 'Không cập nhật group');
+    }
+    notify('success', `Đã ${status === 'paused' ? 'pause' : 'resume'} group`);
+    await loadGroups();
+    if (selectedGroupId === groupId) await loadDetail(groupId);
+    setSubmitting(false);
   }
 
   async function loadDetail(groupId: string) {
+    setLoadingDetail(true);
     const response = await fetch(`/api/admin/group-bot/groups/${groupId}`, { headers: await authHeaders() });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không tải được group');
+    if (!response.ok) {
+      setLoadingDetail(false);
+      return notify('error', result.error ?? 'Không tải được group');
+    }
     setGroupDetail(result);
+    setLoadingDetail(false);
   }
 
   useEffect(() => { void loadGroups(); }, []);
@@ -83,24 +130,30 @@ export default function GroupBotAdminPage() {
 
   async function createGroup(event: FormEvent) {
     event.preventDefault();
+    setSubmitting(true);
     const response = await fetch('/api/admin/group-bot/groups', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ telegram_chat_id: telegramChatId, title, username: username || null }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không tạo được group');
-    setMessage('Đã tạo group');
+    if (!response.ok) {
+      setSubmitting(false);
+      return notify('error', result.error ?? 'Không tạo được group');
+    }
+    notify('success', 'Đã tạo group');
     setTelegramChatId('');
     setTitle('');
     setUsername('');
     await loadGroups();
     setSelectedGroupId(result.group.id);
+    setSubmitting(false);
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!groupDetail) return;
+    setSubmitting(true);
     const form = new FormData(event.currentTarget);
     const settings = {
       moderation_enabled: form.get('moderation_enabled') === 'on',
@@ -120,10 +173,14 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ settings }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không lưu được settings');
-    setMessage('Đã lưu settings');
+    if (!response.ok) {
+      setSubmitting(false);
+      return notify('error', result.error ?? 'Không lưu được settings');
+    }
+    notify('success', 'Đã lưu settings');
     setGroupDetail(result);
     await loadGroups();
+    setSubmitting(false);
   }
 
   async function addRule(event: FormEvent) {
@@ -135,8 +192,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ group_id: selectedGroupId, ...ruleForm }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không thêm được rule');
-    setMessage('Đã thêm rule');
+    if (!response.ok) return notify('error', result.error ?? 'Không thêm được rule');
+    notify('success', 'Đã thêm rule');
     setRuleForm({ rule_type: 'keyword', pattern: '', action: 'delete', severity: '1', priority: '100' });
     await loadDetail(selectedGroupId);
   }
@@ -155,8 +212,9 @@ export default function GroupBotAdminPage() {
       }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không preview được rule');
+    if (!response.ok) return notify('error', result.error ?? 'Không preview được rule');
     setPreviewDecision(`${result.decision.action} · ${result.decision.reason}`);
+    notify('info', 'Đã chạy preview');
   }
 
   async function addBlacklist(event: FormEvent) {
@@ -168,8 +226,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ group_id: selectedGroupId, item_type: itemType, item_value: itemValue, reason: 'manual' }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không thêm được blacklist');
-    setMessage('Đã thêm blacklist');
+    if (!response.ok) return notify('error', result.error ?? 'Không thêm được blacklist');
+    notify('success', 'Đã thêm blacklist');
     setItemValue('');
     await loadDetail(selectedGroupId);
   }
@@ -185,8 +243,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ id: item.id, ...patch }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật blacklist');
-    setMessage('Đã cập nhật blacklist');
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật blacklist');
+    notify('success', 'Đã cập nhật blacklist');
     await loadDetail(selectedGroupId);
   }
 
@@ -196,8 +254,8 @@ export default function GroupBotAdminPage() {
       headers: await authHeaders(),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không xoá được blacklist');
-    setMessage('Đã xoá blacklist');
+    if (!response.ok) return notify('error', result.error ?? 'Không xoá được blacklist');
+    notify('success', 'Đã xoá blacklist');
     await loadDetail(selectedGroupId);
   }
 
@@ -210,8 +268,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ group_id: selectedGroupId, message_text: welcomeText, variant_name: welcomeVariant, enabled: welcomeEnabled }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không thêm được welcome');
-    setMessage('Đã thêm welcome');
+    if (!response.ok) return notify('error', result.error ?? 'Không thêm được welcome');
+    notify('success', 'Đã thêm welcome');
     await loadDetail(selectedGroupId);
   }
 
@@ -222,8 +280,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ id: item.id, ...patch }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật welcome');
-    setMessage('Đã cập nhật welcome');
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật welcome');
+    notify('success', 'Đã cập nhật welcome');
     await loadDetail(selectedGroupId);
   }
 
@@ -233,8 +291,8 @@ export default function GroupBotAdminPage() {
       headers: await authHeaders(),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không xoá được welcome');
-    setMessage('Đã xoá welcome');
+    if (!response.ok) return notify('error', result.error ?? 'Không xoá được welcome');
+    notify('success', 'Đã xoá welcome');
     await loadDetail(selectedGroupId);
   }
 
@@ -246,8 +304,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ group_id: selectedGroupId, action }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật member');
-    setMessage(`Đã ${action} member`);
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật member');
+    notify('success', `Đã ${action} member`);
     await loadDetail(selectedGroupId);
     await loadMemberDetail(selectedGroupId, userId);
   }
@@ -255,7 +313,7 @@ export default function GroupBotAdminPage() {
   async function loadMemberDetail(groupId: string, userId: string) {
     const response = await fetch(`/api/admin/group-bot/members/${encodeURIComponent(userId)}?group_id=${encodeURIComponent(groupId)}`, { headers: await authHeaders() });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không tải được member detail');
+    if (!response.ok) return notify('error', result.error ?? 'Không tải được member detail');
     setMemberDetail(result);
   }
 
@@ -266,8 +324,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ id: rule.id, ...patch }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật rule');
-    setMessage('Đã cập nhật rule');
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật rule');
+    notify('success', 'Đã cập nhật rule');
     await loadDetail(selectedGroupId);
   }
 
@@ -277,8 +335,8 @@ export default function GroupBotAdminPage() {
       headers: await authHeaders(),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không xoá được rule');
-    setMessage('Đã xoá rule');
+    if (!response.ok) return notify('error', result.error ?? 'Không xoá được rule');
+    notify('success', 'Đã xoá rule');
     await loadDetail(selectedGroupId);
   }
 
@@ -289,8 +347,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ id: item.id, ...patch }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật blacklist');
-    setMessage('Đã cập nhật blacklist');
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật blacklist');
+    notify('success', 'Đã cập nhật blacklist');
     await loadDetail(selectedGroupId);
   }
 
@@ -300,8 +358,8 @@ export default function GroupBotAdminPage() {
       headers: await authHeaders(),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không xoá được blacklist');
-    setMessage('Đã xoá blacklist');
+    if (!response.ok) return notify('error', result.error ?? 'Không xoá được blacklist');
+    notify('success', 'Đã xoá blacklist');
     await loadDetail(selectedGroupId);
   }
 
@@ -312,8 +370,8 @@ export default function GroupBotAdminPage() {
       body: JSON.stringify({ id: item.id, ...patch }),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không cập nhật welcome');
-    setMessage('Đã cập nhật welcome');
+    if (!response.ok) return notify('error', result.error ?? 'Không cập nhật welcome');
+    notify('success', 'Đã cập nhật welcome');
     await loadDetail(selectedGroupId);
   }
 
@@ -323,8 +381,8 @@ export default function GroupBotAdminPage() {
       headers: await authHeaders(),
     });
     const result = await response.json();
-    if (!response.ok) return setMessage(result.error ?? 'Không xoá được welcome');
-    setMessage('Đã xoá welcome');
+    if (!response.ok) return notify('error', result.error ?? 'Không xoá được welcome');
+    notify('success', 'Đã xoá welcome');
     await loadDetail(selectedGroupId);
   }
 
@@ -336,8 +394,44 @@ export default function GroupBotAdminPage() {
   });
 
   const memberEvents = (groupDetail?.member_events ?? []).filter((entry) => !selectedMemberId || entry.telegram_user_id === selectedMemberId);
+  const filteredAudit = (groupDetail?.audit ?? []).filter((item) => {
+    const matchesFamily = !auditFamily || (item.event_family ?? 'system') === auditFamily;
+    const matchesActor = !auditActor || item.actor_type === auditActor;
+    const matchesResource = !auditResource || item.resource_type === auditResource;
+    return matchesFamily && matchesActor && matchesResource;
+  });
+
+  const selectedGroup = groupDetail?.group ?? null;
+  const attentionActions = [
+    selectedGroup?.status === 'paused' ? 'Resume group' : 'Pause group',
+    'Add blacklist keyword',
+    'Preview moderation',
+  ].filter(Boolean);
 
   return <main className="admin-shell">
+    {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}
+    {confirmState && (
+      <div className="confirm-backdrop" role="dialog" aria-modal="true">
+        <div className="confirm-modal">
+          <h3>{confirmState.title}</h3>
+          <p className="muted">{confirmState.body}</p>
+          <div className="actions">
+            <button type="button" className="secondary" onClick={() => setConfirmState(null)}>Hủy</button>
+            <button
+              type="button"
+              className="danger"
+              onClick={async () => {
+                const action = confirmState.onConfirm;
+                setConfirmState(null);
+                await action();
+              }}
+            >
+              Xác nhận
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <header className="topbar">
       <div>
         <p className="eyebrow">CU BOT / GROUP CONTROL</p>
@@ -359,26 +453,70 @@ export default function GroupBotAdminPage() {
       <button type="button" className="secondary" onClick={() => setActiveTab('audit')}>Audit</button>
     </nav>
 
-    <div className="inbox-grid">
+    <section className="toolbar command-bar">
+      <button type="button" className="secondary" onClick={() => void loadGroups()}>Refresh groups</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('rules')}>Rules</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('members')}>Members</button>
+      <button type="button" className="secondary" onClick={() => setActiveTab('audit')}>Audit</button>
+      {selectedGroup && (
+        <>
+          <button type="button" className="secondary" onClick={() => void copyGroupId(selectedGroup.telegram_chat_id)}>Copy group ID</button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void patchGroupStatus(selectedGroup.id, selectedGroup.status === 'paused' ? 'active' : 'paused')}
+          >
+            {selectedGroup.status === 'paused' ? 'Resume group' : 'Pause group'}
+          </button>
+        </>
+      )}
+    </section>
+
+    <div className="workspace-grid">
       <section className="queue">
-        <div className="section-title"><h2>Groups</h2><span>{groups.length}</span></div>
-        {groups.map((group) => (
-          <button key={group.id} className={`report-row ${selectedGroupId === group.id ? 'selected' : ''}`} onClick={() => setSelectedGroupId(group.id)}>
+        <div className="section-title"><h2>Groups</h2><span>{loadingGroups ? '...' : groups.length}</span></div>
+        {loadingGroups ? (
+          <div className="skeleton-list">
+            <div className="skeleton-row" />
+            <div className="skeleton-row" />
+            <div className="skeleton-row" />
+          </div>
+        ) : groups.length ? groups.map((group) => (
+          <div
+            key={group.id}
+            className={`report-row ${selectedGroupId === group.id ? 'selected' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setSelectedGroupId(group.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setSelectedGroupId(group.id);
+            }}
+          >
             <span><strong>{group.title}</strong><small>{group.telegram_chat_id}{group.username ? ` · @${group.username}` : ''}</small></span>
             <span className={`pill ${group.status}`}>{group.status}</span>
-          </button>
-        ))}
+            <span className="row-actions">
+              <button type="button" className="secondary" onClick={(event) => { event.stopPropagation(); void copyGroupId(group.telegram_chat_id); }}>Copy</button>
+              <button type="button" className="secondary" onClick={(event) => { event.stopPropagation(); void patchGroupStatus(group.id, group.status === 'paused' ? 'active' : 'paused'); }}>
+                {group.status === 'paused' ? 'Resume' : 'Pause'}
+              </button>
+            </span>
+          </div>
+        )) : <div className="empty"><h2>No groups yet</h2><p className="muted">Tạo group đầu tiên để bắt đầu quản trị bot.</p></div>}
 
         <form onSubmit={createGroup}>
           <h3>Thêm group</h3>
           <label>Telegram chat ID<input value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} required /></label>
           <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
           <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-          <button>Tạo group</button>
+          <button disabled={submitting}>{submitting ? 'Đang tạo...' : 'Tạo group'}</button>
         </form>
 
           <article>
             <h3>Quick tools</h3>
+            <div className="quick-actions">
+              {attentionActions.map((action) => <button key={action} className="secondary" type="button">{action}</button>)}
+              <button className="secondary" type="button" onClick={() => setActiveTab('audit')}>Open audit</button>
+            </div>
             <form onSubmit={addBlacklist} className="stack-form">
               <label>Loại
                 <select value={itemType} onChange={(e) => setItemType(e.target.value)}>
@@ -393,7 +531,7 @@ export default function GroupBotAdminPage() {
               </label>
               <label>Giá trị<input value={itemValue} onChange={(e) => setItemValue(e.target.value)} required /></label>
               {blacklistPreview ? <p className="muted">Normalized preview: {blacklistPreview}</p> : null}
-              <button>Thêm blacklist</button>
+              <button disabled={submitting}>{submitting ? '...' : 'Thêm blacklist'}</button>
             </form>
           <label><input type="checkbox" checked={welcomeEnabled} onChange={(e) => setWelcomeEnabled(e.target.checked)} /> Enable welcome on next add</label>
           <form onSubmit={addWelcome} className="stack-form">
@@ -405,7 +543,7 @@ export default function GroupBotAdminPage() {
               <label>Group preview<input value={welcomePreviewGroup} onChange={(e) => setWelcomePreviewGroup(e.target.value)} /></label>
             </div>
             <p className="muted">Preview: {previewWelcomeMessage(welcomeText, welcomePreviewName, welcomePreviewGroup)}</p>
-            <button>Thêm welcome</button>
+            <button disabled={submitting}>{submitting ? '...' : 'Thêm welcome'}</button>
           </form>
           <div>
             <h4>Current blacklist</h4>
@@ -419,7 +557,11 @@ export default function GroupBotAdminPage() {
                     if (value !== null) void patchBlacklist(item, { item_value: value });
                   }}>Edit</button>
                   <button type="button" className="secondary" onClick={() => void patchBlacklist(item, { status: item.status === 'active' ? 'disabled' : 'active' })}>{item.status === 'active' ? 'Disable' : 'Enable'}</button>
-                  <button type="button" className="danger" onClick={() => void deleteBlacklist(item.id)}>Delete</button>
+                  <button type="button" className="danger" onClick={() => requestConfirm(
+                    'Xóa blacklist?',
+                    `Blacklist ${item.item_type} · ${item.item_value} sẽ bị xoá vĩnh viễn.`,
+                    () => deleteBlacklist(item.id),
+                  )}>Delete</button>
                 </span>
               </div>
             ))}
@@ -436,7 +578,11 @@ export default function GroupBotAdminPage() {
                     if (text !== null) void patchWelcome(item, { message_text: text });
                   }}>Edit</button>
                   <button type="button" className="secondary" onClick={() => void patchWelcome(item, { enabled: !item.enabled })}>{item.enabled ? 'Disable' : 'Enable'}</button>
-                  <button type="button" className="danger" onClick={() => void deleteWelcome(item.id)}>Delete</button>
+                  <button type="button" className="danger" onClick={() => requestConfirm(
+                    'Xóa welcome?',
+                    `Welcome variant ${item.variant_name} sẽ bị xoá.`,
+                    () => deleteWelcome(item.id),
+                  )}>Delete</button>
                 </span>
               </div>
             ))}
@@ -445,7 +591,7 @@ export default function GroupBotAdminPage() {
       </section>
 
       <section className="detail">
-        {!groupDetail ? <div className="empty"><h2>Chọn một group</h2></div> : <>
+        {!groupDetail ? <div className="empty"><h2>Chọn một group</h2><p className="muted">Sidebar bên trái cho danh sách group và quick create.</p></div> : <>
           <div className="detail-head">
             <div>
               <p className="eyebrow">{groupDetail.group.telegram_chat_id}</p>
@@ -454,6 +600,14 @@ export default function GroupBotAdminPage() {
             </div>
             <div className="score">{groupDetail.members.length}<small>members</small></div>
           </div>
+
+          {loadingDetail && (
+            <div className="skeleton-stack">
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+            </div>
+          )}
 
           <div className="toolbar">
             {tabs.map((tab) => <button key={tab} className={activeTab === tab ? '' : 'secondary'} onClick={() => setActiveTab(tab)}>{tab}</button>)}
@@ -471,7 +625,7 @@ export default function GroupBotAdminPage() {
                 <label><input type="checkbox" name="auto_restrict_enabled" defaultChecked={currentSettings?.auto_restrict_enabled ?? false} /> Auto restrict on rule hit</label>
                 <label>Join gate note<input name="join_gate_note" defaultValue={String(currentSettings?.config_json?.join_gate_note ?? '')} /></label>
                 <label>Welcome suffix<input name="welcome_suffix" defaultValue={String(currentSettings?.config_json?.welcome_suffix ?? '')} /></label>
-                <button>Lưu cấu hình</button>
+                <button disabled={submitting}>{submitting ? 'Đang lưu...' : 'Lưu cấu hình'}</button>
               </article>
             </form>
           )}
@@ -483,7 +637,7 @@ export default function GroupBotAdminPage() {
                 <label>Preview text<textarea value={previewText} onChange={(e) => setPreviewText(e.target.value)} rows={3} /></label>
                 <label>User ID<input value={previewUserId} onChange={(e) => setPreviewUserId(e.target.value)} /></label>
                 <label>Username<input value={previewUsername} onChange={(e) => setPreviewUsername(e.target.value)} /></label>
-                <button type="submit">Preview moderation decision</button>
+                <button type="submit" disabled={submitting}>Preview moderation decision</button>
                 {previewDecision ? <p className="muted">Decision: {previewDecision}</p> : null}
               </form>
               {groupDetail.rules.map((rule) => (
@@ -496,7 +650,11 @@ export default function GroupBotAdminPage() {
                       const pattern = window.prompt('Pattern mới', rule.pattern);
                       if (pattern !== null) void patchRule(rule, { pattern });
                     }}>Edit</button>
-                    <button className="danger" type="button" onClick={() => void deleteRule(rule.id)}>Delete</button>
+                    <button className="danger" type="button" onClick={() => requestConfirm(
+                      'Xóa rule?',
+                      `Rule ${rule.rule_type} · ${rule.pattern} sẽ bị xóa khỏi group này.`,
+                      () => deleteRule(rule.id),
+                    )}>Delete</button>
                   </span>
                 </div>
               ))}
@@ -524,7 +682,7 @@ export default function GroupBotAdminPage() {
                 </label>
                 <label>Severity<input type="number" min="1" max="10" value={ruleForm.severity} onChange={(e) => setRuleForm({ ...ruleForm, severity: e.target.value })} /></label>
                 <label>Priority<input type="number" min="1" max="1000" value={ruleForm.priority} onChange={(e) => setRuleForm({ ...ruleForm, priority: e.target.value })} /></label>
-                <button>Thêm rule</button>
+                <button disabled={submitting}>{submitting ? '...' : 'Thêm rule'}</button>
               </form>
             </article>
           )}
@@ -552,7 +710,11 @@ export default function GroupBotAdminPage() {
                   <span className="actions">
                     <button className="secondary" type="button" onClick={() => void memberAction(member.telegram_user_id, 'restrict')}>Restrict</button>
                     <button className="secondary" type="button" onClick={() => void memberAction(member.telegram_user_id, 'unban')}>Unban</button>
-                    <button className="danger" type="button" onClick={() => void memberAction(member.telegram_user_id, 'ban')}>Ban</button>
+                    <button className="danger" type="button" onClick={() => requestConfirm(
+                      'Ban member?',
+                      `Member ${member.display_name ?? member.username ?? member.telegram_user_id} sẽ bị ban khỏi group.`,
+                      () => memberAction(member.telegram_user_id, 'ban'),
+                    )}>Ban</button>
                   </span>
                 </div>
               ))}
@@ -577,17 +739,47 @@ export default function GroupBotAdminPage() {
           {activeTab === 'audit' && (
             <article>
               <h3>Audit log</h3>
-              {groupDetail.audit.map((item) => (
+              <div className="toolbar">
+                <select value={auditFamily} onChange={(e) => setAuditFamily(e.target.value)}>
+                  <option value="">All families</option>
+                  <option value="group">group</option>
+                  <option value="settings">settings</option>
+                  <option value="rule">rule</option>
+                  <option value="member">member</option>
+                  <option value="blacklist">blacklist</option>
+                  <option value="welcome">welcome</option>
+                  <option value="system">system</option>
+                </select>
+                <select value={auditActor} onChange={(e) => setAuditActor(e.target.value)}>
+                  <option value="">All actors</option>
+                  <option value="admin">admin</option>
+                  <option value="bot">bot</option>
+                  <option value="system">system</option>
+                </select>
+                <select value={auditResource} onChange={(e) => setAuditResource(e.target.value)}>
+                  <option value="">All resources</option>
+                  <option value="group">group</option>
+                  <option value="member">member</option>
+                  <option value="moderation_rule">moderation_rule</option>
+                  <option value="blacklist_item">blacklist_item</option>
+                  <option value="welcome_message">welcome_message</option>
+                </select>
+              </div>
+              {filteredAudit.map((item) => (
                 <p className="history" key={item.id}>
-                  <strong>{item.action}</strong> · {item.resource_type}
+                  <strong>{item.event_kind ?? item.action}</strong> · {item.event_family ?? 'system'}
+                  {' · '}
+                  {item.resource_type}
                   {item.resource_id ? ` · ${item.resource_id}` : ''}
-                  <small>{item.actor_type}{item.actor_id ? ` · ${item.actor_id}` : ''} · {new Date(item.created_at).toLocaleString('vi-VN')}</small>
+                  <small>
+                    {item.actor_type}{item.actor_id ? ` · ${item.actor_id}` : ''} · {new Date(item.created_at).toLocaleString('vi-VN')}
+                    {item.retention_days ? ` · retention ${item.retention_days}d` : ''}
+                  </small>
                 </p>
               ))}
             </article>
           )}
         </>}
-        {message && <p className="success">{message}</p>}
       </section>
     </div>
   </main>;

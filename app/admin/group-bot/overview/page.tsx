@@ -38,6 +38,15 @@ export default function GroupBotOverviewPage() {
   const totalActions24h = rows.reduce((sum, row) => sum + row.metrics.action_count_24h, 0);
   const totalActiveRules = rows.reduce((sum, row) => sum + row.metrics.enabled_rule_count, 0);
   const readyState = Boolean(health?.ok && rows.length > 0);
+  const attentionGroups = [...rows]
+    .sort((a, b) => b.metrics.action_count_24h - a.metrics.action_count_24h)
+    .slice(0, 3);
+  const busiestGroup = attentionGroups[0] ?? null;
+  const recommendedActions = [
+    health?.ok ? null : 'Check health',
+    busiestGroup && busiestGroup.metrics.action_count_24h > 0 ? `Review ${busiestGroup.group.title}` : null,
+    totalActiveRules === 0 ? 'Enable rules' : null,
+  ].filter(Boolean) as string[];
 
   async function authHeaders() {
     const { data } = await createBrowserSupabaseClient().auth.getSession();
@@ -104,33 +113,34 @@ export default function GroupBotOverviewPage() {
 
     {message && <p className="error">{message}</p>}
 
-    {health && (
-      <div className="overview-grid">
-        <article className="overview-card">
-          <h3>Health</h3>
-          <p className="muted">{health.service} · {health.database}</p>
-          <p className="muted">Checked at {new Date(health.checkedAt).toLocaleString('vi-VN')}</p>
-        </article>
-        <article className="overview-card">
-          <h3>Groups</h3>
-          <strong>{health.groups ?? 0}</strong>
-          <p className="muted">bot_groups records</p>
-        </article>
-        <article className="overview-card">
-          <h3>Rules health</h3>
-          <p className="muted">{JSON.stringify(health.rules ?? {})}</p>
-        </article>
-        <article className="overview-card">
-          <h3>Blacklist health</h3>
-          <p className="muted">{JSON.stringify(health.blacklist ?? {})}</p>
-        </article>
-        <article className="overview-card">
-          <h3>Audit 24h</h3>
-          <strong>{health.audit_24h?.count ?? 0}</strong>
-          <p className="muted">{JSON.stringify(health.audit_24h?.actions ?? {})}</p>
-        </article>
-      </div>
-    )}
+    <div className="overview-grid">
+      <article className="overview-card highlight">
+        <h3>Operational state</h3>
+        <strong>{readyState ? 'Ready' : 'Needs attention'}</strong>
+        <p className="muted">{health?.service ?? 'service pending'} · {health?.database ?? 'database pending'}</p>
+        <p className="muted">Checked at {health ? new Date(health.checkedAt).toLocaleString('vi-VN') : 'N/A'}</p>
+      </article>
+      <article className="overview-card">
+        <h3>Attention queue</h3>
+        {attentionGroups.length ? attentionGroups.map((row) => (
+          <p className="history" key={row.group.id}>
+            <strong>{row.group.title}</strong>
+            <small>{row.metrics.action_count_24h} actions · {row.metrics.member_count} members</small>
+          </p>
+        )) : <p className="muted">No groups need attention.</p>}
+      </article>
+      <article className="overview-card">
+        <h3>Recommended actions</h3>
+        {recommendedActions.length ? recommendedActions.map((action) => (
+          <p className="history" key={action}><strong>{action}</strong></p>
+        )) : <p className="muted">System is steady.</p>}
+      </article>
+      <article className="overview-card">
+        <h3>Audit 24h</h3>
+        <strong>{health?.audit_24h?.count ?? 0}</strong>
+        <p className="muted">{JSON.stringify(health?.audit_24h?.actions ?? {})}</p>
+      </article>
+    </div>
 
     <div className="overview-grid">
       <article className="overview-card">
@@ -185,7 +195,13 @@ export default function GroupBotOverviewPage() {
       </article>
     </div>
 
-    {loading ? <p className="muted">Đang tải...</p> : (
+    {loading ? <p className="muted">Đang tải...</p> : rows.length === 0 ? (
+      <article className="overview-card">
+        <h3>No groups yet</h3>
+        <p className="muted">Tạo group đầu tiên ở dashboard để overview bắt đầu hiển thị dữ liệu điều hành.</p>
+        <a className="secondary" href="/admin/group-bot">Open dashboard</a>
+      </article>
+    ) : (
       <div className="overview-grid">
         {rows.map((row) => (
           <article key={row.group.id} className="overview-card">

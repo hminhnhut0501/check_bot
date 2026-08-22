@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireReviewer } from '@/lib/auth/require-admin';
-import { fetchGroupAdminBundle, logAudit, removeGroup, updateGroup } from '@/lib/group-bot/admin-service';
+import { fetchGroupAdminBundle, getGroupChatId, logAudit, removeGroup, updateGroup } from '@/lib/group-bot/admin-service';
+import { invalidateGroupPolicy } from '@/lib/group-bot/policy';
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireReviewer(request);
@@ -34,6 +35,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     updatedBy: auth.user?.id ?? null,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const chatIdResult = await getGroupChatId(id);
+  if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
   return NextResponse.json({ group: data });
 }
 
@@ -43,6 +46,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const { id } = await context.params;
   const { error } = await removeGroup(id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const chatIdResult = await getGroupChatId(id);
+  if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
   await logAudit({
     group_id: id,
     actor_type: 'admin',

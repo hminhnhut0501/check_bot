@@ -68,7 +68,7 @@ export async function loadGroupPolicy(chatId: string): Promise<GroupPolicy | nul
   if (cached) return cached;
   const supabase = createServerSupabaseClient();
   const { data: group } = await supabase.from('bot_groups').select('id, telegram_chat_id, title, username, status').eq('telegram_chat_id', chatId).maybeSingle();
-  if (!group) return null;
+  if (!group || group.status !== 'active') return null;
 
   const [settings, rules, blacklist, welcomes] = await Promise.all([
     supabase.from('bot_group_settings').select('*').eq('group_id', group.id).maybeSingle(),
@@ -106,6 +106,9 @@ export function evaluateModerationDecision(policy: GroupPolicy | null, text: str
     return { action: 'ignore', reason: 'policy_missing', matched_rules: [], matched_blacklist: [], signals, severity: 0 };
   }
   const { settings, rules, blacklist } = policy;
+  if (!settings.moderation_enabled) {
+    return { action: 'allow', reason: 'moderation_disabled', matched_rules: [], matched_blacklist: [], signals, severity: 0 };
+  }
   const { normalized, hasLink, hasPhone, mentions } = signals;
   const matched_rules: string[] = [];
   const matched_blacklist: string[] = [];

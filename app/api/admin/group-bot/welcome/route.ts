@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireReviewer } from '@/lib/auth/require-admin';
-import { createWelcomeMessage, deleteWelcomeMessage, listWelcomeMessages, logAudit, updateWelcomeMessage } from '@/lib/group-bot/admin-service';
+import { createWelcomeMessage, deleteWelcomeMessage, getGroupChatId, listWelcomeMessages, logAudit, updateWelcomeMessage } from '@/lib/group-bot/admin-service';
+import { invalidateGroupPolicy } from '@/lib/group-bot/policy';
 
 export async function GET(request: Request) {
   const auth = await requireReviewer(request);
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
     conditions_json: typeof body.conditions_json === 'object' && body.conditions_json ? body.conditions_json : {},
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const chatIdResult = await getGroupChatId(String(body.group_id));
+  if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
   return NextResponse.json({ welcome: data }, { status: 201 });
 }
 
@@ -51,6 +54,10 @@ export async function PATCH(request: Request) {
     resource_id: id,
     new_data: data,
   });
+  if (data.group_id) {
+    const chatIdResult = await getGroupChatId(data.group_id);
+    if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
+  }
   return NextResponse.json({ welcome: data });
 }
 
@@ -72,5 +79,9 @@ export async function DELETE(request: Request) {
     resource_id: id,
     old_data: existing,
   });
+  if (existing.group_id) {
+    const chatIdResult = await getGroupChatId(existing.group_id);
+    if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
+  }
   return NextResponse.json({ ok: true });
 }

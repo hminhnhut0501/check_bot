@@ -3,11 +3,13 @@ import { requireReviewer } from '@/lib/auth/require-admin';
 import {
   createBlacklistItem,
   deleteBlacklistItem,
+  getGroupChatId,
   listBlacklist,
   logAudit,
   normalizeGroupBotValue,
   updateBlacklistItem,
 } from '@/lib/group-bot/admin-service';
+import { invalidateGroupPolicy } from '@/lib/group-bot/policy';
 
 export async function GET(request: Request) {
   const auth = await requireReviewer(request);
@@ -35,6 +37,10 @@ export async function POST(request: Request) {
     created_by: auth.user?.id ?? null,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (data.group_id) {
+    const chatIdResult = await getGroupChatId(data.group_id);
+    if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
+  }
   return NextResponse.json({ item: data }, { status: 201 });
 }
 
@@ -63,6 +69,10 @@ export async function PATCH(request: Request) {
     resource_id: id,
     new_data: data,
   });
+  if (data.group_id) {
+    const chatIdResult = await getGroupChatId(data.group_id);
+    if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
+  }
   return NextResponse.json({ item: data });
 }
 
@@ -84,5 +94,9 @@ export async function DELETE(request: Request) {
     resource_id: id,
     old_data: existing,
   });
+  if (existing.group_id) {
+    const chatIdResult = await getGroupChatId(existing.group_id);
+    if (chatIdResult.data?.telegram_chat_id) invalidateGroupPolicy(chatIdResult.data.telegram_chat_id);
+  }
   return NextResponse.json({ ok: true });
 }

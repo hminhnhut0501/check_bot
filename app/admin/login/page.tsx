@@ -17,12 +17,12 @@ export default function AdminLoginPage() {
     setError('');
     const { error: signInError } = await createBrowserSupabaseClient().auth.signInWithPassword({ email, password });
     if (signInError) setError(signInError.message);
-    else router.push('/admin/inbox');
+    else router.push('/admin/group-bot');
     setLoading(false);
   }
 
   return <main className="auth-shell"><form className="auth-card" onSubmit={submit}>
-    <p className="eyebrow">SCAMSHIELD ADMIN</p><h1>Đăng nhập</h1><p className="muted">Dùng tài khoản reviewer đã được cấp quyền.</p>
+    <p className="eyebrow">CU BOT ADMIN</p><h1>Đăng nhập</h1><p className="muted">Dùng tài khoản reviewer đã được cấp quyền để quản trị group bot.</p>
     <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
     <label>Mật khẩu<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
     {error && <p className="error">{error}</p>}<button disabled={loading}>{loading ? 'Đang đăng nhập...' : 'Đăng nhập'}</button>
